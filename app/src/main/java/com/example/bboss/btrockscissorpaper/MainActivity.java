@@ -12,6 +12,8 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.os.AsyncTask;
+import android.renderscript.ScriptGroup;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -24,10 +26,14 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+
 /*
 TODO CANCELLA : TUTTE DIR BUILD...
  */
@@ -39,12 +45,13 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private ListView listViewDiscovered;
     public static final String CLIENT="CLIENT";
     private List<BluetoothDevice> discovered = new ArrayList<>();
+    private BluetoothDevice debugTargetDevice;  //DEBUG ONLY
     public static final String SERVER="SERVER";
     private static final int REQUEST_ENABLE_BT=1;   //passed with intent to bt os handler...retrived in onREsult...
     private BluetoothAdapter bluetoothAdapter;
 
     private final int DURATION=300;
-    private final UUID uuid= UUID.fromString("b8319a04-3632-4d0d-8bd5-47238a404a28");
+    protected static final  UUID uuid= UUID.fromString("b8319a04-3632-4d0d-8bd5-47238a404a28");
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -63,6 +70,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
 
     }
+
     @Override
     public void onClick(View view){
         switch (view.getId()){
@@ -89,7 +97,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
             startActivityForResult(enableBtIntent,REQUEST_ENABLE_BT);
         }
-
+        //start BT and switch in server host logic
         if (hostKind.equals(SERVER))
             connectTryServer();
         else
@@ -97,17 +105,22 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     }
 
     private void connectTryServer() {
+        // andrea!
         Intent discoverableIntent =
                 new Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE);
         discoverableIntent.putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, DURATION);
         startActivity(discoverableIntent);
         //getting server socket
-        /*
+        boolean debugOn=true;
+        if(!debugOn)
+            return;
         BluetoothServerSocket bluetoothServerSocket= null;
+        BluetoothSocket serverSocket = null; //blocking call... MUST BE IN ANTOHER TH!
+
         try {
             bluetoothServerSocket = bluetoothAdapter.listenUsingRfcommWithServiceRecord(this.getLocalClassName(),uuid);
             //SDP protocol where run bt? has localClassName and uuid specified
-            BluetoothSocket serverSocket= bluetoothServerSocket.accept(); //blocking call... MUST BE IN ANTOHER TH!
+            serverSocket = bluetoothServerSocket.accept();
 
         } catch (IOException e) {
             BTHandler.setupAllert("ERROR IN CREATE COMUNICATION CHANNEL (SERVER)");
@@ -118,8 +131,14 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         } catch (IOException e) {
             e.printStackTrace();
         }
+        //debug try write "hello fuck bt word"
+        try {
+            serverSocket.getOutputStream().write("hello fuck bt word".getBytes());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
         //getted connection==>close way to get more ... //TODO CHANGE FOR >=3 PLAYER!
-        */
+
     }
     //BROADCAST RECEIVER 4 CLIENT
     private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
@@ -130,6 +149,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 // object and its info from the Intent.
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 discovered.add(device);
+                debugTargetDevice=device;
                 //discovered.add(device);
                 //TODO ADD TO A LIST OF FOUNDED DEVICE (HAS TO BE CLEARED BEFORE START SCANNING!
                 String deviceName = device.getName();
@@ -147,12 +167,23 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         }
     };
     private void connectTryClient(){
+        //livio
         //TODO THIS METHOD HAS TO WRAP CALLING TO ANOTHER CLASS WITCH WILL PERFORM ALL IN ANOTHER THREAD
         BluetoothDevice targetDevice=null;
-        //getting paierd devices...
+        //getting paierd devices...         TODO ONLY DEBUG
         System.out.println("PAIRED DEVICES...");
         Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
         discovered.addAll(pairedDevices);   //TODO DEBUG ONLY
+        //debug take nokia6 from paireds Device.
+        String debugTargetMac="7C:46:85:29:58:15"; //C9:50:76:8D:90:FD //oth
+        Iterator<BluetoothDevice> iterator= pairedDevices.iterator();
+        while (iterator.hasNext()){
+            BluetoothDevice device= iterator.next();
+            if (device.getAddress().equals(debugTargetMac)){
+                //accoppiated device Nokia 6 founded => target 2 connect
+                this.debugTargetDevice=device;
+            }
+        }
         /*TODO TEST
         if (pairedDevices.size() > 0) {
             // There are paired devices. Get the name and address of each paired device.
@@ -180,7 +211,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 MY_PERMISSIONS_REQUEST_ACCESS_COARSE_LOCATION);
         listViewDiscovered.setVisibility(View.VISIBLE);
 
-        boolean returnB= bluetoothAdapter.startDiscovery();   //manualy handle bt discvoery in code!!
+        boolean returnB= bluetoothAdapter.startDiscovery();   //manualy handle bt discvoery in code!! async call
+        /* TODO LIVIO BIND DISCOVERED => LISTVIEW
         ArrayAdapter<BluetoothDevice> arrayAdapter= new ArrayAdapter<BluetoothDevice>(this,R.id.discovered,discovered);
         listViewDiscovered.setAdapter(arrayAdapter);
         Intent intentBluetooth = new Intent();
@@ -189,19 +221,30 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         //unbinding receiver of broadcast bt discovery notify... TODO EVALUTATE DIFFERENT POSITION (LK ONDESTROY)
         //unregisterReceiver(mReceiver); //TODO ADD
         BluetoothSocket clientSocket = null;
-        /*
+        */
+        //todo get socket
+
+        /* TODO original   call 2 IO BT
         try {
 
-            clientSocket= targetDevice.createInsecureRfcommSocketToServiceRecord(uuid);
+
+            clientSocket= this.debugTargetDevice.createInsecureRfcommSocketToServiceRecord(uuid);
             clientSocket.connect(); //TODO BLOCKING UNTIL CLIENT AND SERVER HAVE PAIRED...
             //IOEXEPTION FOR TIMEOUT---ERRORS
-        } catch (IOException e) {
+        } catch (IOException e)
+        {
             BTHandler.setupAllert("ERROR IN CREATE COMUNICATION CHANNEL CLIENT");
             e.printStackTrace();
         }
+
+
+        try {
+            clientSocket.getInputStream().read();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
         */
-
-
     }
 
     @Override
